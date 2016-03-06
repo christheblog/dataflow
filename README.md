@@ -199,8 +199,6 @@ val reduced = Chan.reduceLeft(channel) { _ + _ }
 // ...
 ```
 
-### and everything else I want to try here :)
-
 
 ## What's next ?
 
