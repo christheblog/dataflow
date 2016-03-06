@@ -150,13 +150,13 @@ object Dataflow {
   private class ReadOnlyVar[T](v: Var[T]) extends Var[T] {
     
     def <<(value: T) = 
-      throw new RuntimeException(s"${Thread.currentThread.getName} : Cannot bind a a value to a read-only variable")
+      throw new RuntimeException(s"${Thread.currentThread.getName} : Cannot bind a value to a read-only variable")
     
     def <<!(ex: Exception) = 
-      throw new RuntimeException(s"${Thread.currentThread.getName} : Cannot bind a a value to a read-only variable")
+      throw new RuntimeException(s"${Thread.currentThread.getName} : Cannot bind a value to a read-only variable")
     
     protected[dataflow] def <<??(value: T) = 
-      throw new RuntimeException(s"${Thread.currentThread.getName} : Cannot bind a a value to a read-only variable")
+      throw new RuntimeException(s"${Thread.currentThread.getName} : Cannot bind a value to a read-only variable")
     
     override def !!() : Var[T] = this
     

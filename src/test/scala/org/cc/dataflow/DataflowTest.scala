@@ -162,7 +162,7 @@ class DataflowTest extends FlatSpec {
       case n =>
         val a = fthread() { fib(n-1) }
         val b = fthread() { fib(n-2) }
-        thread[Int](a,b) { a() + b() }
+        thread(a,b) { a() + b() }
     }
     assert(fib(15)()==987)
   }

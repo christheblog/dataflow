@@ -3,13 +3,13 @@
 
 ## Description
 
-This project intends to provide me a playground to experiment in Scala what can be done with dataflow variables, and experiment which kind of data structure we can build.
-The current implementation is an on-going work, and there is no plan at the moment to make a library. I am just sharing it in case you are curious about the topic.
+This project intends to provide me a playground to experiment in Scala what can be done with dataflow variables, and experiment which kind of data structure we can build on the top of them.
+The current implementation is an on-going work, and there is no plan at the moment to make a proper library. I am just sharing it in case you are curious about the topic.
 
 This work has been largely inspired by the excellent book "Concept, Techniques and Models of Computer Programming" from Peter VanRoy and Seif Haridi.
-You can experiment the power of dataflow variables within the OZ language, but the lack of modern tools and IDE like eclipse or ItelliJ plugins make the learning curve a bit steep.
+You can experiment the power of dataflow variables within the OZ language, but it lacks modern tools and IDE.
 
-Dataflow variables can be written only once, and are blocking when trying to read them if they are unbound.
+Dataflow variables can be assigned only once, and are blocking when trying to read them if they are unbound.
 
 
 ## Example
@@ -32,7 +32,8 @@ thread() { x << 1 } // binds x to 1
 thread() { y << 2 } // binds y to 2
 ```
 
-Dataflow computation is run in parallel, but is DETERMINISTIC as long as you have only a blocking read and a write operation. If a deadlock occurs, it will occur deterministically.
+Dataflow computation is run in parallel, but is DETERMINISTIC as long as you have only a blocking read and a write operation (and provided you don't attempt to bind the variable several time). 
+If a deadlock occurs, it will occur deterministically.
 
 The DSL is not as light as one could desire. The thread() { ... } syntax needs to declare all the variables that will be read in the block. This was an easy way to provide light-weight threads. 
 When writing the code thread(x,y) { x + y }, the block { x + y } is executed only when x and y have been bound, and never before. 
@@ -47,6 +48,32 @@ thread() { y << 2 }
 val z = thread(x,y) { x() + y() } 
 z() // Blocks the current OS thread until z is bound.
 ```
+
+As a last example, we can consider the following function :   
+```scala
+def fib(x: Int): Var[Int] = x match {
+  case 0 => df << 1
+  case 1 => df << 1
+  case n =>
+    val a = fthread() { fib(n-1) }
+    val b = fthread() { fib(n-2) }
+    thread(a,b) { a() + b() }
+}
+
+val result = fib(15)
+result() // blocks until result is computed
+```
+
+This function will create and "block" an exponential number of threads, until f(0) and f(1) are computed.
+
+Note that fthread will flatten the result of the thread.
+```scala
+thread() { fib(n-1) }  // Var[Var[Int]]
+fthread() { fib(n-1) } // Var[Int]
+```
+
+
+### Remarks
 
 Ideally we would like a syntax similar to the OZ language syntax :
 ```scala 
@@ -73,10 +100,8 @@ import DataflowExtension._
 You can for instance check if a variable is assigned :
 ```scala
 val x = df[Int]
-if(isAssigned(x)) 
-  x() + 1
-else 
-  0
+thread() { x << 100 }
+val undetermined = if(isAssigned(x)) x() + 1 else  0
 ```
 
 Or wait for one of 2 variables to be bound :
@@ -96,28 +121,88 @@ val z: Var[Int] = oneOf(x,y)
 thread(z) { ... z() ... }
 ```
    
-## What's in the project ?
+## What else ? 
 
-In this project you will also find :
-- Cell : mutable store (based on an AtomicReference)
+### Streams 
 
-Based on the dataflow variable and the mutable store, you will also find :
-- Ports implementation (Actor-like)
-- Channel implementation (CSP-like)
-- A few data structures like DFStream (List in which the last element is an unbounded dataflow variable)
-- and everything I want to try here :)
+A DFStream is a list in which the last element is an unbounded dataflow variable.
+
+```scala
+import DFStream._
+val s = empty[Int]()
+append(s,1)
+append(s,2)
+append(s,3)
+```
+
+Map/Filter a stream returns a stream which will be updated each time we append a new value to the source one :  
+```scala
+val s = empty[Int]()
+val sPlus10 = DFStream.map(s,_ + 10)
+val evenNum = DFStream.filter(s,_ % 2 ==0)
+append(s,1)
+append(s,2)
+append(s,3)
+// sPlus10 is now [11,12,13]
+// evenNum is now [2]
+```
+
+### Cells
+A cell is just mutable store that work like an AtomicReference. This is not built on the top of the dataflow variable, but is useful to build concurrent data structures.
+
+### Ports (Actor-like)
+
+A port works like an actor. The mailbox is just a stream of dataflow variable. 
+A port is designed to work with multiple senders and one receiver. Receiving is a blocking operation, when sending is asynchronous.
+
+```scala
+import Port._
+
+val port = new Port[Int]()
+receive(port) { i => println(s"Receive ${i}" }
+// Messages will be processed in order
+send(port,1)
+send(port,2)
+send(port,3)
+```
+
+### Channel implementation (CSP-like)
+
+A channel supports several writers and readers. Writing to a channel "blocks" until a reader is ready to read the value. Reading from a channel is blocking until a writer has written a value.
+In case of multiple writers and readers, order in which value are written and which reader will read teh value is not determined. 
+
+```scala
+import Chan._
+
+val channel = chan[Int]("test")
+channel.writeAll(1) // channel needs a reader before being able to write
+val result: Var[Int] = channel.read { n => n } // Now we have a reader. Value is written in a dataflow variable
+```
+
+There is also some usual combinators available for the channels :
+```scala
+val channel = chan[Int]("test")
+
+val mapped = Chan.map(channel) { n => n * 100 }
+val filtered = Chan.filter(channel) { n => n % 2 == 0 }
+val folded = Chan.foldLeft(channel)("0") { (acc: String,elt: Int) => acc + elt }
+val reduced = Chan.reduceLeft(channel) { _ + _ }
+// ...
+```
+
+### and everything else I want to try here :)
 
 
 ## What's next ?
 
 The current implementation of the Var[T] and the DependencyGraph has been done quickly to provide me a playground. 
-Code for these is no easy to understand, and would definitely benefits from a re-engineering. 
+Code for these is no easy to understand, and would definitely benefits from a re-engineering.  
 The next version will probably be based on actors.
 
 
 ## If you are interested in dataflow variables ...
 
-- Akka used to have a dataflow variable implementation based on continuations (I am not sure if this is still the case). There is also probably a lot of other implementations available.
+- Akka used to have a dataflow variable implementation based on continuations (I am not sure if this is still the case).
 - You can also have a look at Ozma (which I haven't tried myself) : (https://github.com/sjrd/ozma)
 - You can also have a look at OZ itself (https://mozart.github.io/) 
-- And of course buy the excellent book from the creators of Oz/Mozart (http://www.amazon.co.uk/Concepts-Techniques-Models-Computer-Programming/dp/0262220695/)
+- And of course read the excellent book from the creators of Oz/Mozart (http://www.amazon.co.uk/Concepts-Techniques-Models-Computer-Programming/dp/0262220695/)
