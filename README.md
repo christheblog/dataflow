@@ -4,7 +4,9 @@
 ## Description
 
 This project intends to provide me a playground to experiment in Scala what can be done with dataflow variables, and experiment which kind of data structure we can build on the top of them.
-The current implementation is an on-going work, and there is no plan at the moment to make a proper library. I am just sharing it in case you are curious about the topic.
+The current implementation is an on-going work, and there is no plan at the moment to make it a proper library. 
+
+I am just sharing this code in case you are curious about the topic.
 
 This work has been largely inspired by the excellent book "Concept, Techniques and Models of Computer Programming" from Peter VanRoy and Seif Haridi.
 You can experiment the power of dataflow variables within the OZ language, but it lacks modern tools and IDE.
@@ -32,14 +34,13 @@ thread() { x << 1 } // binds x to 1
 thread() { y << 2 } // binds y to 2
 ```
 
-Dataflow computation is run in parallel, but is DETERMINISTIC as long as you have only a blocking read and a write operation (and provided you don't attempt to bind the variable several time). 
-If a deadlock occurs, it will occur deterministically.
+A dataflow computation is run in parallel, but is DETERMINISTIC (provided you don't attempt to bind concurrently a variable several time). If a deadlock occurs, it will occur deterministically.
 
-The DSL is not as light as one could desire. The thread() { ... } syntax needs to declare all the variables that will be read in the block. This was an easy way to provide light-weight threads. 
-When writing the code thread(x,y) { x + y }, the block { x + y } is executed only when x and y have been bound, and never before. 
+The DSL is not as light as one could desire. The `thread() { ... }` syntax needs to declare all the variables that will be read in the block. This was an easy way to provide light-weight threads. 
+When writing the code `thread(x,y) { x + y }`, the block `{ x + y }` is executed only when `x` and `y` have been bound, and never before. 
 This guarantees that we will never block an OS thread and we can easily create thousands or millions of light-weight threads.
 
-A thread returns an unbound dataflow variable that will be bound once the thread block has been executed.
+A `thread()` call returns an unbound dataflow variable that will be bound with the result of the thread code block has been executed.
 
 you could write :
 ```scala
@@ -64,7 +65,7 @@ val result = fib(15)
 result() // blocks until result is computed
 ```
 
-This function will create and "block" an exponential number of threads, until f(0) and f(1) are computed.
+This function will create and "block" an exponential number of threads, until `f(0)` and `f(1)` are computed.
 
 Note that fthread will flatten the result of the thread.
 ```scala
@@ -73,7 +74,7 @@ fthread() { fib(n-1) } // Var[Int]
 ```
 
 
-### Remarks
+#### Remark
 
 Ideally we would like a syntax similar to the OZ language syntax :
 ```scala 
@@ -121,7 +122,7 @@ val z: Var[Int] = oneOf(x,y)
 thread(z) { ... z() ... }
 ```
    
-## What else ? 
+## What else can we do ? 
 
 ### Streams 
 
@@ -135,11 +136,11 @@ append(s,2)
 append(s,3)
 ```
 
-Map/Filter a stream returns a stream which will be updated each time we append a new value to the source one :  
+Mapping/Filtering a stream returns a new stream which will be updated each time we append a new value to the original one :  
 ```scala
 val s = empty[Int]()
-val sPlus10 = DFStream.map(s,_ + 10)
-val evenNum = DFStream.filter(s,_ % 2 ==0)
+val sPlus10 = DFStream.map(s,_ + 10) // empty
+val evenNum = DFStream.filter(s,_ % 2 ==0) //empty
 append(s,1)
 append(s,2)
 append(s,3)
@@ -152,8 +153,10 @@ A cell is just mutable store that work like an AtomicReference. This is not buil
 
 ### Ports (Actor-like)
 
-A port works like an actor. The mailbox is just a stream of dataflow variable. 
-A port is designed to work with multiple senders and one receiver. Receiving is a blocking operation, when sending is asynchronous.
+A port works like an actor. The mailbox is just a stream. Sending a message to the port is equivalent to appending a new value to the stream. 
+The receiver is just looping, attempting to read the unbound variable in a thread until it is becomes bound.    
+
+A port is designed to work with multiple senders and one receiver. Receiving is a blocking operation as the receiver attempt to read an unbound variable. Sending to a port is asynchronous.
 
 ```scala
 import Port._
@@ -169,14 +172,20 @@ send(port,3)
 ### Channel implementation (CSP-like)
 
 A channel supports several writers and readers. Writing to a channel "blocks" until a reader is ready to read the value. Reading from a channel is blocking until a writer has written a value.
-In case of multiple writers and readers, order in which value are written and which reader will read teh value is not determined. 
+In case of multiple writers and readers, order in which values are written and which readers will read the value is undetermined. 
 
 ```scala
 import Chan._
 
 val channel = chan[Int]("test")
-channel.writeAll(1) // channel needs a reader before being able to write
-val result: Var[Int] = channel.read { n => n } // Now we have a reader. Value is written in a dataflow variable
+// Producing 10 values to be written in the channel
+def produce(n: Int): Unit = 
+  if(n >= 0) channel.write(n) { written => produce(n - 1) }
+produce(10)
+
+// Nothing is written until we have a reader
+val result: Var[Int] = channel.read { n => n } // Now one value is written and read through the channel.
+channel.read { n => n } // Now a second value is written and subsequently read.
 ```
 
 There is also some usual combinators available for the channels :
@@ -195,14 +204,13 @@ val reduced = Chan.reduceLeft(channel) { _ + _ }
 
 ## What's next ?
 
-The current implementation of the Var[T] and the DependencyGraph has been done quickly to provide me a playground. 
-Code for these is no easy to understand, and would definitely benefits from a re-engineering.  
-The next version will probably be based on actors.
+The current implementation of the Var[T] and the DependencyGraph has been written quickly to provide me the base I needed to experiment and play around with them in scala. 
+Code for these is not easy to understand, and would definitely benefits from a re-engineering. The next version will probably be based on actors.
 
 
 ## If you are interested in dataflow variables ...
 
-- Akka used to have a dataflow variable implementation based on continuations (I am not sure if this is still the case).
+- Akka (https://github.com/akka/akka) used to have a dataflow variable implementation based on continuations (I am not sure if this is still the case).
 - You can also have a look at Ozma (which I haven't tried myself) : (https://github.com/sjrd/ozma)
-- You can also have a look at OZ itself (https://mozart.github.io/) 
+- You can also have a look at Oz itself (https://mozart.github.io/)
 - And of course read the excellent book from the creators of Oz/Mozart (http://www.amazon.co.uk/Concepts-Techniques-Models-Computer-Programming/dp/0262220695/)
