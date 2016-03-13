@@ -8,7 +8,7 @@ import org.cc.dataflow.DependencyGraph
 import org.scalatest.FlatSpec
 
 
-class ChannelMessageRateBenchmark  extends FlatSpec {
+class ChannelMessageRateBenchmark extends FlatSpec {
   
   import Dataflow._
   import Chan._

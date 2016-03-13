@@ -43,17 +43,11 @@ class PortMessageRateBenchmark extends FlatSpec {
     // N messages have been reached
     latch.await()
     val end = System.currentTimeMillis()
-    println(end-start+" ms")
-    
+    println(s"${N} message exchanged between ${PORT_COUNT} ports in ${(end-start)} ms.")
+    println(s"Exchange rate = ${(N.toDouble / (end-start)) * 1000} msg/s")
+
     // If the latch has been released => p2 has received message from p1 
     assert(counter.get >= N)
-    
-    // Time to have a look at the memory ...
-    Thread.sleep(3600 * 1000)
-    // Prevents GC
-    send(ports(0),1)
-    //Thread.sleep(250)
-    //assert(dfcontext.size()==PORT_COUNT * 2)
   }
   
 }

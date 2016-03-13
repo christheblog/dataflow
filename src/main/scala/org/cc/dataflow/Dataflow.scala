@@ -67,17 +67,12 @@ object Dataflow {
 
   // Blocking until both variables are bound
   def waitBoth[T,U](x: Var[T], y: Var[U])(implicit context: DataflowContext): (T,U) = {
-    val lock = new Object()
-    lock.synchronized {
-      thread(x,y) { lock.synchronized { lock.notifyAll() }  }
-      lock.wait()
-      (x(),y())
-    }
+    val res = thread(x, y) { (x(), y()) }
+    res()
   }
   
   
-  
-  // We could provide map/flatMap directly in the Var[T] to allow for comprehensions
+  // We could provide map/flatMap directly in the Var[T] to allow for comprehension
   
   // map a function over the result of the var when it will be bound   
   def map[T,U](v: Var[T])(f: T => U)(implicit context: DataflowContext): Var[U] = 
@@ -101,50 +96,43 @@ object Dataflow {
     
     
     
-  
-  // Dataflow variables implementation  
+  // Future/Promise dataflow variable implementation 
     
-  type OEither[A,B] = Option[Either[A,B]]
-  private class DFVar[T](private val ref: AtomicReference[OEither[Throwable,T]] = new AtomicReference[OEither[Throwable,T]](None))(implicit ctx: DataflowContext) extends Var[T] {
-    private val lock = new Object()
+  import scala.concurrent.{Await, Future, Promise}
+  import scala.concurrent.duration._
+  import scala.util.{Try, Success,Failure}
+    
+  private class DFVar[T](promise: Promise[T] = Promise[T]())(implicit ctx: DataflowContext) extends Var[T] {
     
     def <<(value: T) = {
-      if(ref.compareAndSet(None, Some(Right(value)))) {
-        ctx.bind(this,value)
-        lock.synchronized { lock.notifyAll; this }
-      }
-      else throw new RuntimeException(s"Variable ${id()} already bound to a value")
+      promise.complete(Success(value))
+      ctx.bind(this,value)
+      this
     }
     
-    def <<!(ex: Exception) = 
-      if(ref.compareAndSet(None, Some(Left(ex)))) {
-        ctx.bind(this,ex)
-        lock.synchronized { lock.notifyAll; this }
-      }
-      else throw new RuntimeException(s"Variable ${id()} already bound to a value")
-    
-    def apply(): T = lock.synchronized {
-      ref.get match {
-        case Some(Right(v)) => v
-        case Some(Left(th)) => throw th
-        case _ =>
-          lock.wait()
-          apply()
-      }
+    def <<!(ex: Exception) =  {
+      promise.complete(Failure(ex))
+      ctx.bind(this,ex)
+      this
     }
+    
+    def apply(): T = 
+      Await.result(promise.future, Duration.Inf)
     
     // This may be needed - but should not be exposed
-    protected[dataflow] def isAssigned = ref.get.isDefined
+    protected[dataflow] def isAssigned = 
+      promise.future.isCompleted
     
     // Assign a value if variable is not already bound. 
     // Returns true if this is our call binding the value
-    protected[dataflow] def <<??(value: T) =
-      if(ref.compareAndSet(None, Some(Right(value)))) {
+    protected[dataflow] def <<??(value: T) = 
+      if(promise.tryComplete(Success(value))) {
         ctx.bind(this,value)
-        lock.synchronized { lock.notifyAll; true }
+        true
       }
       else false
   }
+
   
   // Loosely proxy another variable - in a read-only fashion
   private class ReadOnlyVar[T](v: Var[T]) extends Var[T] {
